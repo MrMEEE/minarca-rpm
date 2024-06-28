@@ -1,0 +1,30 @@
+#!/bin/bash
+
+source $(dirname "$0")/common-functions
+
+VERSION=$(get_version)
+
+mkdir -p $PUBLISHPATH
+
+GNUPGHOME=$PROJECTPATH/gpg/
+
+rm -rf $PUBLISHPATH/$VERSION/
+
+cp -a $PROJECTPATH/rpmbuilds/$VERSION/RPMS $PUBLISHPATH/$VERSION
+
+for i in `ls $PUBLISHPATH/$VERSION/*.rpm`;do
+
+	rpm --addsign $i
+
+done
+
+createrepo_c $PUBLISHPATH/$VERSION/
+
+echo "[eda-rpm-$VERSION]
+name=EDA-RPM $VERSION
+enabled=1
+gpgcheck=1
+baseurl=https://rpm.awx.wiki/EDA-RPM/$VERSION/
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-awx-rpm" > $PUBLISHPATH/$PROJECTPACKAGENAME-$VERSION.repo
+
+restorecon -r $PUBLISHPATH/$VERSION

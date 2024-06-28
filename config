@@ -1,0 +1,6 @@
+PROJECTNAME=minarca
+PROJECTPACKAGENAME=minarca-server
+PACKAGEMANAGER=poetry
+TAGPREFIX=
+REQUIREPATH=requirements
+PUBLISHPATH=/var/www/html/minarca

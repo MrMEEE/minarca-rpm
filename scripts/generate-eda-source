@@ -1,0 +1,69 @@
+#!/bin/bash
+
+source $(dirname "$0")/common-functions
+
+VERSION=$(get_version)
+PYTHONBUILD=$(get_python)
+
+DATE=$(date +"%a %b %d %Y %r %Z %z")
+
+echo "Generating source and build for $PROJECTPACKAGENAME version: $VERSION"
+
+cd $PROJECTPATH
+
+cp $PROJECTPATH/versions/$PROJECTPACKAGENAME/*$VERSION* $PROJECTPATH/rpmbuilds/$VERSION/SOURCES/
+
+if [[ "$1" != "nosource" ]]; then
+	tar zcf $PROJECTPATH/rpmbuilds/$VERSION/SOURCES/$PROJECTNAME-$VERSION.tar.gz $PROJECTNAME/
+fi
+
+cd $PROJECTPATH/rpmbuilds/$VERSION/RPMS/
+
+BUILDVERSION=$(cat $PROJECTPATH/versions/deps/$PROJECTPACKAGENAME.spec |grep Release: | awk '{ print $2}' | cut -f1 -d%)
+
+if [[ "$BUILDVERSION" == "" ]];then
+        NEWBUILDVERSION=1
+else
+        let "NEWBUILDVERSION=BUILDVERSION+1"
+fi
+
+echo "" > /var/www/html/AWX-RPM/excludelists/$PROJECTPACKAGENAME-$VERSION-$NEWBUILDVERSION.el9
+
+for i in `ls python* |grep -v debuginfo |grep -v debugsource | grep -v poetry | grep -v wheel | grep -v awx-rpm-manage`; do
+
+        PACKAGENAME=$(echo $i | rev | cut -f3- -d- | rev | cut -f1- -d-)
+        PACKAGEVERSION=$(echo $i | rev | cut -f2 -d- | rev)
+        DEPS=$DEPS$(echo "Requires: $PACKAGENAME = $PACKAGEVERSION\r")
+        BUILDDEPS=$BUILDDEPS$(echo "BuildRequires: $PACKAGENAME = $PACKAGEVERSION\r")
+	echo $PACKAGENAME >> /var/www/html/AWX-RPM/excludelists/$PROJECTPACKAGENAME-$VERSION-$NEWBUILDVERSION.el9
+done
+
+BUILDDEPS=$BUILDDEPS$(echo "BuildRequires: python$PYTHONBUILD-poetry\r")
+
+RHELDEPS="Requires: "
+
+for i in `cat $PROJECTPATH/versions/deps/rhel-deps.txt`; do
+
+	RHELDEPS=$RHELDEPS$(echo $i | sed "s/python-/python$PYTHONBUILD-/g")" "
+	echo $i | sed "s/python-/python3-/g" >> /var/www/html/AWX-RPM/excludelists/$PROJECTPACKAGENAME-$VERSION-$NEWBUILDVERSION.el9
+
+done
+
+DEPS=$DEPS$RHELDEPS
+BUILDDEPS=$BUILDDEPS$"Build"$RHELDEPS
+LASTVERSION=$(cd $PROJECTPATH/versions/ && git branch | sed 's/*/ /g' |grep -B 1 "$VERSION" | head -1)
+#CHANGELOG=$(cd $PROJECTPATH/$PROJECTNAME/ && git log --oneline --decorate $LASTVERSION..$VERSION | cut -d" " -f2- | sed -e "s/^/- /g" | sed ':a;N;$!ba;s/\n/\\n/g' | sed 's/\$/\\$/g')
+cp $PROJECTPATH/templates/$PROJECTPACKAGENAME-temp.spec $PROJECTPATH/versions/deps/$PROJECTPACKAGENAME.spec
+
+sed -i "s/Release:.*$/Release: $NEWBUILDVERSION%{dist}/g" $PROJECTPATH/versions/deps/$PROJECTPACKAGENAME.spec
+
+sed -i "s|¤BUILDREQUIRES¤|$BUILDDEPS|g" $PROJECTPATH/versions/deps/$PROJECTPACKAGENAME.spec
+sed -i "s|¤REQUIRES¤|$DEPS|g" $PROJECTPATH/versions/deps/$PROJECTPACKAGENAME.spec
+sed -i "s|¤VERSION¤|$VERSION|g" $PROJECTPATH/versions/deps/$PROJECTPACKAGENAME.spec
+sed -i "s|¤DATE¤|$DATE|g" $PROJECTPATH/versions/deps/$PROJECTPACKAGENAME.spec
+sed -i "s|¤CHANGELOG¤|$CHANGELOG|g" $PROJECTPATH/versions/deps/$PROJECTPACKAGENAME.spec
+sed -i "s|¤PYTHON3PKGVERSION¤|$PYTHONBUILD|g" $PROJECTPATH/versions/deps/$PROJECTPACKAGENAME.spec
+sed -i "s|\r|\n|g" $PROJECTPATH/versions/deps/$PROJECTPACKAGENAME.spec
+
+rpmbuild -bs --define "_topdir $PROJECTPATH/rpmbuilds/$VERSION/" $PROJECTPATH/versions/deps/$PROJECTPACKAGENAME.spec
+
